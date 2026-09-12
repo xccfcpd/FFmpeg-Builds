@@ -1,0 +1,111 @@
+# ============================================================
+# 监控上游 FFmpeg release/7.1 分支变化
+# 每周检查一次，若上游有新提交，则自动触发 Build FFmpeg 工作流
+# ============================================================
+name: Watch Upstream FFmpeg 7.1
+
+on:
+  # 定时触发：每周一 UTC 03:17 执行一次
+  # cron 格式：分 时 日 月 周
+  # 17 3 * * 1  表示每周一 03:17 UTC
+  # 如需调整频率，修改此行即可，例如每 3 天一次：'17 3 */3 * *'
+  schedule:
+    - cron: '17 3 * * 1'
+
+  # 允许在 Actions 页面手动触发本工作流，方便调试
+  workflow_dispatch:
+
+# 显式声明权限：
+#   contents: write  用于提交并推送存储哈希的文件
+#   actions: write   用于通过 gh workflow run 触发其他工作流
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  check-upstream:
+    name: Check upstream and trigger build
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------------
+      # 1. 检出当前仓库
+      #    使用 GITHUB_TOKEN，以便后续步骤能 push 提交
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # --------------------------------------------------------
+      # 2. 获取上游 FFmpeg release/7.1 分支的最新提交哈希
+      #    通过 GitHub REST API 获取 commits/release/7.1
+      #    jq 用于从 JSON 中提取 .sha 字段
+      # --------------------------------------------------------
+      - name: Get upstream latest commit hash
+        id: upstream
+        run: |
+          UPSTREAM_HASH=$(curl -s \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/FFmpeg/FFmpeg/commits/release/7.1" \
+            | jq -r '.sha')
+          echo "hash=${UPSTREAM_HASH}" >> "$GITHUB_OUTPUT"
+          echo "Upstream latest commit: ${UPSTREAM_HASH}"
+
+      # --------------------------------------------------------
+      # 3. 读取本地存储的上次哈希，并与上游最新哈希比较
+      #    存储文件路径：.github/upstream_ffmpeg_7.1_hash.txt
+      #    若文件不存在或内容不同，则视为上游有变化
+      # --------------------------------------------------------
+      - name: Compare with stored hash
+        id: compare
+        run: |
+          STORED_HASH=""
+          if [ -f .github/upstream_ffmpeg_7.1_hash.txt ]; then
+            STORED_HASH=$(cat .github/upstream_ffmpeg_7.1_hash.txt)
+          fi
+          echo "Stored hash:  ${STORED_HASH}"
+          echo "Upstream hash: ${{ steps.upstream.outputs.hash }}"
+
+          if [ "${STORED_HASH}" != "${{ steps.upstream.outputs.hash }}" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "✅ 上游 release/7.1 有新提交，准备触发构建。"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ 上游 release/7.1 无变化，跳过构建。"
+          fi
+
+      # --------------------------------------------------------
+      # 4. 若上游有变化，更新本地存储的哈希并提交推送
+      #    提交消息中加上 [skip ci]，避免触发 build.yml 的 push 构建
+      #    因为 build.yml 的 push 触发不会忽略 .txt 文件
+      # --------------------------------------------------------
+      - name: Update stored hash and commit
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          echo "${{ steps.upstream.outputs.hash }}" > .github/upstream_ffmpeg_7.1_hash.txt
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add .github/upstream_ffmpeg_7.1_hash.txt
+          git commit -m "chore: upstream FFmpeg 7.1 updated to ${{ steps.upstream.outputs.hash }} [skip ci]"
+          git push
+
+      # --------------------------------------------------------
+      # 5. 若上游有变化，通过 gh workflow run 触发 Build FFmpeg 工作流
+      #    - 工作流名称必须与 build.yml 中的 name 完全一致
+      #    - 传入 doRelease=true，让 build.yml 自动发布 Release
+      #    - 使用 GH_TOKEN 环境变量提供认证
+      # --------------------------------------------------------
+      - name: Trigger Build FFmpeg workflow
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run "Build FFmpeg" \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            -f doRelease=true
+
+          echo "✅ 已触发 Build FFmpeg 工作流，doRelease=true"
