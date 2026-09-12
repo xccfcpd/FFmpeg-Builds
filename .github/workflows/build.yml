@@ -194,7 +194,7 @@ jobs:
           untagged_only: true
 
   # ============================================================
-  # 构建目标变体镜像（仅 Windows 64 位，包含 5.1 和 7.1 的 GPL 和 Nonfree）
+  # 构建目标变体镜像（仅 Windows 64 位，包含 7.1 的 GPL 和 Nonfree）
   # ============================================================
   build_targets:
     name: Build target-variant image
@@ -206,7 +206,7 @@ jobs:
       matrix:
         target: [win64]
         variant: [gpl, nonfree]
-        addin: [5.1, 7.1]
+        addin: [7.1]
     steps:
       - name: Free Disk-Space
         run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
@@ -265,7 +265,7 @@ jobs:
           untagged_only: true
 
   # ============================================================
-  # 编译 FFmpeg（仅 Windows 64 位，包含 5.1 和 7.1 的 GPL 和 Nonfree）
+  # 编译 FFmpeg（仅 Windows 64 位，包含 7.1 的 GPL 和 Nonfree）
   # ============================================================
   build_ffmpeg:
     name: Build ffmpeg
@@ -277,7 +277,7 @@ jobs:
       matrix:
         target: [win64]
         variant: [gpl, nonfree]
-        addin: [5.1, 7.1]
+        addin: [7.1]
     steps:
       - name: Free Disk-Space
         run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
